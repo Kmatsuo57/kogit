@@ -6,55 +6,27 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from tensorflow.keras.callbacks import Callback
 
-def load_image_and_annotation(image_path, json_path):
-    # グレースケール画像として読み込み
+def load_image_and_annotation(image_path, mask_path):
     image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
-    if image is None:
-        print(f"画像を読み込めませんでした: {image_path}")
-        return None, None
-
-    # 必要に応じてRGBに変換
-    image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
-    image = cv2.resize(image, (128, 128))
-
-    # JSONファイルからアノテーションの読み込み
-    with open(json_path, 'r') as file:
-        data = json.load(file)
-    polygons = [shape['points'] for shape in data['shapes']]
-
-    labels = [shape['label'] for shape in data['shapes']]
-    return image, polygons, labels
+    mask =  cv2.imread(mask_path, cv2.IMREAD_COLOR)
+    return image, mask
 
 
-def flip_image_and_annotation(image, polygons):
+def flip_image_and_annotation(image, mask):
     flipped_image = cv2.flip(image, 1)
-    flipped_polygons = []
-    for polygon in polygons:
-        flipped_polygon = [[image.shape[1] - p[0], p[1]] for p in polygon]
-        flipped_polygons.append(flipped_polygon)
-
-    return flipped_image, flipped_polygons
+    flipped_mask = cv2.flip(mask, 1)
+    return flipped_image, flipped_mask
 
 
-def rotate_image_and_annotation(image, polygons, angle):
+def rotate_image_and_annotation(image, mask, angle):
     (h, w) = image.shape[:2]
     center = (w / 2, h / 2)
 
     M = cv2.getRotationMatrix2D(center, angle, 1.0)
     rotated_image = cv2.warpAffine(image, M, (w, h))
+    rotated_mask = cv2.warpAffine(mask, M, (w, h))
 
-    rotated_polygons = []
-    for polygon in polygons:
-        rotated_polygon = []
-        for p in polygon:
-            # ポイントを2Dから3Dに拡張
-            p_3d = np.array([p[0], p[1], 1])
-            # 回転行列を適用
-            rotated_p = np.dot(M, p_3d)
-            rotated_polygon.append([rotated_p[0], rotated_p[1]])
-        rotated_polygons.append(rotated_polygon)
-
-    return rotated_image, rotated_polygons
+    return rotated_image, rotated_mask
 
 
 
@@ -70,17 +42,14 @@ def scale_image_and_annotation(image, polygons, scale_factor):
     return scaled_image, scaled_polygons
 
 
-def vertical_flip_image_and_annotation(image, polygons):
+def vertical_flip_image_and_annotation(image, mask):
     flipped_image = cv2.flip(image, 0)
-    flipped_polygons = []
-    for polygon in polygons:
-        flipped_polygon = [[p[0], image.shape[0] - p[1]] for p in polygon]
-        flipped_polygons.append(flipped_polygon)
-
-    return flipped_image, flipped_polygons
+    flipped_mask = cv2.flip(mask, 0)
+    
+    return flipped_image, flipped_mask
 
 
-def convert_polygons_to_mask(polygons, labels, image_shape):
+# def convert_polygons_to_mask(polygons, labels, image_shape):
     mask = np.zeros(image_shape[:2], dtype=np.uint8)
     for polygon, label in zip(polygons, labels):
         if len(polygon) < 3:
@@ -93,33 +62,33 @@ def convert_polygons_to_mask(polygons, labels, image_shape):
 
 
 def extend_images(image_path, json_path, degree):
-    image, polygon, labels = load_image_and_annotation(image_path, json_path)
+    image, mask = load_image_and_annotation(image_path, json_path)
     # フリップされた画像とアノテーションを取得
-    flipped_image, flipped_polygons = flip_image_and_annotation(image, polygon)
+    flipped_image, flipped_polygons = flip_image_and_annotation(image, mask)
     print(len(flipped_image))
-    rotate_image, rotate_polygons = rotate_image_and_annotation(image, polygon, degree)
+    rotate_image, rotate_polygons = rotate_image_and_annotation(image, mask, degree)
     print(len(rotate_image))
-    vertical_flip_image, vertical_flip_polygons = vertical_flip_image_and_annotation(image, polygon)
+    vertical_flip_image, vertical_flip_polygons = vertical_flip_image_and_annotation(image, mask)
     print(len(vertical_flip_image))
 
 
     images = []
-    polygons = []
+    masks = []
 
     # 元の画像と水増し画像をリストに追加
     images.append(image)
-    polygons.append(polygon)
+    masks.append(mask)
 
     # 水増し画像をリストに追加
     images.extend([flipped_image, rotate_image, vertical_flip_image])
-    polygons.extend([flipped_polygons, rotate_polygons, vertical_flip_polygons])
+    masks.extend([flipped_polygons, rotate_polygons, vertical_flip_polygons])
 
     # NumPy配列に変換
     images = np.array(images)
 
     # ここでポリゴンをセグメンテーションマスクに変換する関数を定義する必要があります
-    masks = [convert_polygons_to_mask(p, l, image.shape) for p, l in zip(polygons, labels)]
-    masks = np.array(masks)
+    masks_sp = np.array(masks)
+
 
     return images, masks
 
